@@ -70,6 +70,21 @@ wardrobe = get_example_wardrobe()
 
 Your README submission must document each tool's name, inputs, and return value. **These must exactly match your actual function signatures in `tools.py`.** Your documented interfaces will be checked against your actual function signatures in `tools.py` — if the parameter count or types contradict what's in the code, you may not receive full credit for that tool.
 
+### search_listings(description, size, max_price)
+- **Inputs:** `description` (str) — keywords describing the item the user is looking for; `size` (str or None) — clothing size to filter by, case-insensitive; `max_price` (float or None) — maximum price ceiling, inclusive
+- **Returns:** A list of matching listing dicts ordered by relevance score, each containing `id` (str), `title` (str), `description` (str), `category` (str), `style_tags` (list), `size` (str), `condition` (str), `price` (float), `colors` (list), `brand` (str), and `platform` (str). Returns an empty list if nothing matches.
+- **Purpose:** Searches the mock listings dataset for secondhand items matching the user's request by filtering on price and size then scoring by keyword overlap.
+
+### suggest_outfit(new_item, wardrobe)
+- **Inputs:** `new_item` (dict) — the selected listing dict returned by search_listings containing the item's full details; `wardrobe` (dict) — a wardrobe dict with an `items` key containing a list of wardrobe item dicts, each with `id`, `name`, `category`, `colors`, `style_tags`, and `notes`
+- **Returns:** A non-empty string containing 1-2 complete outfit suggestions pairing the new item with pieces from the user's wardrobe. If the wardrobe is empty, returns general styling advice describing what types of pieces would pair well with the item instead.
+- **Purpose:** Uses the LLM to suggest complete outfit combinations using the new item and the user's existing wardrobe.
+
+### create_fit_card(outfit, new_item)
+- **Inputs:** `outfit` (str) — the outfit suggestion string returned by suggest_outfit; `new_item` (dict) — the selected listing dict from search_listings
+- **Returns:** A 2-4 sentence string written as a casual Instagram-style caption mentioning the item name, price, and platform naturally. Returns a descriptive error message string if outfit is empty or whitespace-only rather than raising an exception.
+- **Purpose:** Uses the LLM to generate a short, shareable social media caption describing the complete outfit.
+
 ---
 
 ## Interaction Walkthrough
@@ -78,7 +93,7 @@ Your README submission must document each tool's name, inputs, and return value.
      Walk through this carefully — it's how graders follow your agent's reasoning without a live demo.
      Use a specific example — do not leave this as a template. -->
 
-**User query:**
+**User query: vintage graphic tee size M under $40**
 
 **Step 1 — Tool called:**
 - Tool: search_listings
@@ -143,6 +158,13 @@ The create_fit_card tool then accesses both selected_item and outfit_suggestion 
 
 ---
 
+**Concrete testing example:** When running the agent with the query "designer ballgown 
+size XXS under $5", `search_listings` returned an empty list and the agent displayed 
+"No listings found matching 'designer ballgown', size XXS, under $5. Try adjusting 
+your description, size, or price range." in the first output panel, leaving the outfit 
+idea and fit card panels empty. This confirmed the planning loop stopped early and did 
+not call `suggest_outfit` or `create_fit_card` with empty input.
+
 ## Spec Reflection
 
 <!-- Answer both questions with at least 2–3 sentences each. -->
@@ -154,7 +176,7 @@ Having the agent diagram committed in planning.md before writing any code made i
 The original spec described the suggest_outfit failure mode as handling an empty wardrobe by stopping the workflow, but the implementation diverged from this by treating an empty wardrobe as a valid input that triggers a different prompt path rather than an error. This change was made because stopping the workflow entirely when a new user has no wardrobe would make the agent unusable for the exact group of people most likely to need it — someone just getting started with thrifting. Returning general styling advice instead keeps the workflow complete and still gives the user something useful, while the true failure mode for suggest_outfit remains an empty string returned by the LLM call itself.
 
 ---
-**AI Usage**
+## AI Usage
 For `search_listings`, I provided Claude with the Tool 1 spec block from planning.md including the input parameters, return value description, and failure mode, along with
 the function stub from tools.py. Claude produced a function that filtered listings by price and size and scored them by keyword overlap across title, description, category, brand, style tags, and colors. I verified it handled all three filter parameters and returned an empty list rather than raising an exception. I also revised the listing text formatting to include additional item fields — specifically the price, description, and brand — so the top result displayed to the user contained enough detail to make an informed purchase decision rather than just the item title.
 
