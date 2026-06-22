@@ -111,9 +111,9 @@ For each tool, describe the specific failure mode you're handling and what the a
 
 | Tool | Failure mode | Agent response |
 |------|-------------|----------------|
-| search_listings | No results match the query | |
-| suggest_outfit | Wardrobe is empty | |
-| create_fit_card | Outfit input is missing or incomplete | |
+| search_listings | No results match the query | | The agent sets session["error"] to "No listings found matching '{description}', size {size}, under ${max_price}. Try adjusting your description, size, or price range.", sets selected_item, outfit_suggestion, and fit_card to None, and returns the session early without calling suggest_outfit or create_fit_card. 
+| suggest_outfit | Wardrobe is empty | | The agent sets session["error"] to "Could not generate an outfit suggestion. This may be because the wardrobe is empty or the item details were insufficient. Try adding items to your wardrobe or searching for a different item.", sets selected_item, outfit_suggestion, and fit_card to None, and returns the session early without calling create_fit_card.
+| create_fit_card | Outfit input is missing or incomplete | | The agent sets session["error"] to "Could not generate a fit card. The outfit information may have been incomplete. Try searching for a different item.", sets selected_item, outfit_suggestion, and fit_card to None, and returns the session early. 
 
 ---
 
@@ -193,6 +193,14 @@ Planning Loop
      "I'll give Claude my Tool 1 spec (inputs, return value, failure mode) and ask it to implement
      search_listings() using load_listings() from the data loader — then test it against 3 queries
      before trusting it" is a plan. -->
+
+     For implementing search_listings, I used Claude and provided it with the Tool 1 spec block from planning.md, which included the input parameters, return value description, and failure mode, along with the function stub from tools.py containing the docstring and TODO steps. I asked Claude to implement the function using load_listings() from the data loader. Before using the output, I verified that it filtered by all three parameters, handled None values for size and max_price, scored listings by keyword overlap across the relevant fields, and returned an empty list rather than raising an exception when nothing matched. I then tested it against three queries: a realistic query to confirm it returned results, an impossible query to confirm it returned an empty list, and a price-filtered query to confirm all results were under the ceiling.
+
+     For implementing suggest_outfit, I provided Claude with the Tool 2 spec block from planning.md, which described the two input parameters, the expected return value, and the empty wardrobe failure mode, along with the function stub from tools.py. I asked Claude to implement the function using the Groq client helper _get_groq_client() and the llama-3.3-70b-versatile model. Before using the output, I verified that it handled the empty wardrobe case by switching to a general styling prompt rather than crashing or returning an empty string, that it referenced wardrobe items by name in the populated wardrobe path, and that the LLM call was wrapped in a try/except block that returned an empty string on failure.
+
+     For implementing create_fit_card, I provided Claude with the Tool 3 spec block from planning.md, which described the outfit and new_item parameters, the Instagram-style caption requirements, and the failure mode for empty outfit input, along with the function stub from tools.py. I asked Claude to implement the function using _get_groq_client() with a higher temperature than the other tools to ensure caption variety. Before using the output, I verified that the guard clause caught both empty and whitespace-only outfit strings and returned a descriptive error message rather than raising an exception, that the prompt instructed the LLM to write only the caption with no preamble, and that running it twice on the same input produced different results.
+     
+     For implementing run_agent, I provided Claude with the Planning Loop and State Management sections from planning.md, the agent architecture diagram, and the function stub from agent.py containing the TODO steps. I asked Claude to implement the planning loop following the conditional branching described in the diagram. Before using the output, I verified that it parsed the user query using the LLM at temperature 0.0 with a fallback for failed parsing, that it branched correctly on empty results from search_listings without calling subsequent tools, that session state flowed correctly between all three tool calls, and that each error branch set the appropriate session fields to None and returned early.
 
 **Milestone 3 — Individual tool implementations:**
 

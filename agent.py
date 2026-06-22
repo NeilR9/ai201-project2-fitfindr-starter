@@ -18,7 +18,9 @@ Usage (once implemented):
     print(result["error"])   # None on success
 """
 
-from tools import search_listings, suggest_outfit, create_fit_card
+import json
+
+from tools import search_listings, suggest_outfit, create_fit_card, _get_groq_client
 
 
 # ── session state ─────────────────────────────────────────────────────────────
@@ -92,9 +94,87 @@ def run_agent(query: str, wardrobe: dict) -> dict:
     Before writing code, complete the Planning Loop and State Management sections
     of planning.md — your implementation should match what you described there.
     """
-    # TODO: implement the planning loop
+    # Step 1: Initialize the session
     session = _new_session(query, wardrobe)
-    session["error"] = "Planning loop not yet implemented."
+
+    # Step 2: Parse the user's query using the LLM to extract description,
+    # size, and max_price, then store in session["parsed"]
+    try:
+        client = _get_groq_client()
+        parse_prompt = (
+            f"Extract the following from this clothing search query:\n"
+            f"1. description: the item being searched for (e.g. 'vintage graphic tee')\n"
+            f"2. size: clothing size if mentioned (e.g. 'S', 'M', 'L', 'XL'), or null\n"
+            f"3. max_price: maximum price as a number if mentioned, or null\n\n"
+            f"Query: {query}\n\n"
+            f"Respond ONLY with a JSON object like this, no extra text:\n"
+            f"{{\"description\": \"...\", \"size\": \"...\" or null, \"max_price\": number or null}}"
+        )
+        parse_response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": parse_prompt}],
+            temperature=0.0,
+        )
+        raw = parse_response.choices[0].message.content.strip()
+        parsed = json.loads(raw)
+    except Exception:
+        # Fallback: treat entire query as description with no size or price
+        parsed = {"description": query, "size": None, "max_price": None}
+
+    session["parsed"] = parsed
+    description = parsed.get("description", query)
+    size = parsed.get("size", None)
+    max_price = parsed.get("max_price", None)
+
+    # Step 3: Call search_listings and check for empty results
+    results = search_listings(description, size=size, max_price=max_price)
+    session["search_results"] = results
+
+    if not results:
+        session["error"] = (
+            f"No listings found matching '{description}'"
+            + (f", size {size}" if size else "")
+            + (f", under ${max_price}" if max_price else "")
+            + ". Try adjusting your description, size, or price range."
+        )
+        session["selected_item"] = None
+        session["outfit_suggestion"] = None
+        session["fit_card"] = None
+        return session
+
+    # Step 4: Select the top result
+    session["selected_item"] = results[0]
+
+    # Step 5: Call suggest_outfit and check for empty result
+    outfit_suggestion = suggest_outfit(results[0], wardrobe)
+    session["outfit_suggestion"] = outfit_suggestion
+
+    if not outfit_suggestion:
+        session["error"] = (
+            "Could not generate an outfit suggestion. This may be because the "
+            "wardrobe is empty or the item details were insufficient. "
+            "Try adding items to your wardrobe or searching for a different item."
+        )
+        session["selected_item"] = None
+        session["outfit_suggestion"] = None
+        session["fit_card"] = None
+        return session
+
+    # Step 6: Call create_fit_card and check for empty or error result
+    fit_card = create_fit_card(outfit_suggestion, results[0])
+    session["fit_card"] = fit_card
+
+    if not fit_card or "Could not generate" in fit_card:
+        session["error"] = (
+            "Could not generate a fit card. The outfit information may have been "
+            "incomplete. Try searching for a different item."
+        )
+        session["selected_item"] = None
+        session["outfit_suggestion"] = None
+        session["fit_card"] = None
+        return session
+
+    # Step 7: Return the completed session
     return session
 
 
